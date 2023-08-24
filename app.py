@@ -1,4 +1,4 @@
-from flask import Flask, request, send_file
+from flask import Flask, request, send_file, g
 import os
 from werkzeug.exceptions import HTTPException
 import hashlib
@@ -8,9 +8,8 @@ app = Flask(__name__)
 auth = HTTPBasicAuth()
 
 UPLOAD_DIR = "store"
-USERS = {
-    "username": "password",  # Replace with your actual username and password
-}
+USERS = {"alice": "password", "bob": "password"}
+OWNERS = {}
 
 
 def get_file_path(hash):
@@ -45,6 +44,11 @@ def upload():
 
     with open(filepath, "wb") as f:
         f.write(file_content)
+    username = g.flask_httpauth_user
+    if username not in OWNERS:
+        OWNERS[username] = [file_hash]
+    else:
+        OWNERS[username].append(file_hash)
 
     return file_hash
 
@@ -53,9 +57,15 @@ def upload():
 @auth.login_required
 def delete_file(file_hash):
     file_path = get_file_path(file_hash)
+
     if os.path.exists(file_path):
-        os.remove(file_path)
-        return "File deleted\n"
+        username = g.flask_httpauth_user
+        if username in OWNERS and file_hash in OWNERS[username]:
+            os.remove(file_path)
+            OWNERS[username].remove(file_hash)
+            return "File deleted\n"
+        else:
+            raise CustomHTTPException("You don't have permission to delete this file", 403)
     else:
         raise CustomHTTPException("File not found", 404)
 
